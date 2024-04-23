@@ -5,7 +5,7 @@ from psychopy import visual, core
 from pylsl import StreamInfo, StreamOutlet
 
 arrow_size = 750          # Arrow Size
-n_trials  = [2, 2, 0]   # Number of each class (Right, Left, Down)
+n_trials  = [15, 15, 0]   # Number of each class (Right, Left, Down)
 trial_length = 3          # Length of arrow display [sec]
 blink_freq = 0            # Arrow blinking frequency [Hz]
 
@@ -23,7 +23,7 @@ arrow = [[(-0.2,0.05),(-0.2,-0.05),(0,-0.05),(0,-0.1),(.2,0),(0,0.1),(0,0.05)], 
 arrow_pos = np.array([(0.3,0),(-0.3,0),(0,-0.3)]) # [Right, Left, Down]
 
 # -- |Define Display| --
-win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix')
+win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', screen = 1)
 
 # -- |Initialize Stimuli Object| --
 cross = visual.TextStim(win, text='+', height=50)
