@@ -4,10 +4,16 @@ import numpy as np
 from psychopy import visual, core
 from pylsl import StreamInfo, StreamOutlet
 
-arrow_size = 750          # Arrow Size
-n_trials  = [15, 15, 0]   # Number of each class (Right, Left, Down)
-trial_length = 3          # Length of arrow display [sec]
-blink_freq = 0            # Arrow blinking frequency [Hz]
+arrow_size = 750             # Arrow Size
+n_trials  = [15, 15, 15, 0]  # Number of each class (None, Right, Left, Down)
+trial_length = 3             # Length of arrow display [sec]
+blink_freq = 0               # Arrow blinking frequency [Hz]
+
+# -- |Create random label sequence| --
+labels = np.zeros(n_trials[0], dtype='int')
+for i in range(1,len(n_trials)):
+    labels = np.concatenate((labels,np.full(n_trials[i],i, dtype='int')))
+np.random.shuffle(labels)
 
 # -- |Initialize the stream| --
 info = StreamInfo(name='MyMarkerStream', type='Markers', channel_count=1,
@@ -16,11 +22,12 @@ outlet = StreamOutlet(info)
 
 # -- |Define Arrow Vertices and Arrow Position| --
 # Arrow Vertices
-arrow = [[(-0.2,0.05),(-0.2,-0.05),(0,-0.05),(0,-0.1),(.2,0),(0,0.1),(0,0.05)],     # 0 - Right
-         [(.2,0.05),(.2,-0.05),(0,-0.05),(0,-0.1),(-0.2,0),(0,0.1),(0,0.05)],       # 1 - Left
-         [(0.05,0.2),(-0.05,0.2),(-0.05,0),(-0.1,0),(0,-.2),(0.1,0),(0.05,0)]]      # 2 - Down
+arrow = [[(0,0)],                                                                   # 0 - None
+         [(-0.2,0.05),(-0.2,-0.05),(0,-0.05),(0,-0.1),(.2,0),(0,0.1),(0,0.05)],     # 1 - Right
+         [(.2,0.05),(.2,-0.05),(0,-0.05),(0,-0.1),(-0.2,0),(0,0.1),(0,0.05)],       # 2 - Left
+         [(0.05,0.2),(-0.05,0.2),(-0.05,0),(-0.1,0),(0,-.2),(0.1,0),(0.05,0)]]      # 3 - Down
 # Arrow Position
-arrow_pos = np.array([(0.3,0),(-0.3,0),(0,-0.3)]) # [Right, Left, Down]
+arrow_pos = np.array([(0,0),(0.3,0),(-0.3,0),(0,-0.3)]) # [None, Right, Left, Down]
 
 # -- |Define Display| --
 win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', screen = 1)
@@ -28,38 +35,33 @@ win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', scree
 # -- |Initialize Stimuli Object| --
 cross = visual.TextStim(win, text='+', height=50)
 arrows = []
-for i in range(3):
+for i in range(len(arrow)):
     arrows.append(visual.ShapeStim(win, vertices=arrow[i], interpolate=True, fillColor='red', pos=arrow_pos[i]*arrow_size, size=arrow_size))
 
 # -- |Start an Experiment| --
 core.wait(5)    # Participants preparation time
 
 # Start Trials
-while sum(n_trials) > 0:
+for trial in range(sum(n_trials)):
     # Cross Display at the begining of each trial (2 sec)
     cross.draw()
     win.flip()
     core.wait(2)
 
-    # Determine which arrow should be showed up. The each arrow type will be randomly appears until reached the given amount.
-    arrow_availables = [i for i, n in enumerate(n_trials) if n > 0]
-    ind = np.random.randint(0,len(arrow_availables))
-    n_trials[arrow_availables[ind]] -= 1
-
     # Send an event marker before arrow display
-    outlet.push_sample(x=[arrow_availables[ind]])
+    outlet.push_sample(x=[labels[trial]])
 
     # Arrow Display 
     if blink_freq == 0:
         cross.draw()
-        arrows[arrow_availables[ind]].draw()
+        arrows[labels[trial]].draw()
         win.flip()
         core.wait(trial_length)
     else:
         n_blink = trial_length*blink_freq
         for i in range(n_blink):
             cross.draw()
-            arrows[arrow_availables[ind]].draw()
+            arrows[labels[trial]].draw()
             win.flip()
             core.wait((2*blink_freq)**-1)
 

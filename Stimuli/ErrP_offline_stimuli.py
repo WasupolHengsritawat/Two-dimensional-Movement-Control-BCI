@@ -28,7 +28,7 @@ win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', scree
 cross = visual.TextStim(win, text='+', height=50)
 cross.draw()
 win.flip()
-core.wait(3)
+core.wait(3) 
 
 video_refresh_rate = 120
 trial_lenght = 1.5
