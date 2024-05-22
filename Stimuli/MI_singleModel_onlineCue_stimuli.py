@@ -9,13 +9,20 @@ import pyxdf
 import mne
 from mne.decoding import CSP
 from mne.preprocessing import EOGRegression
+from mne.stats import permutation_cluster_1samp_test as pcluster_test
+import scipy
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.colors import TwoSlopeNorm
+from sklearn.svm import SVC 
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score,classification_report
 from sklearn.model_selection import train_test_split
 import sys
-
+ 
 sys.path.append('../Two-dimensional-Movement-Control-BCI')
 from mnetools import streams2mnedata, preprocessing
 
@@ -24,8 +31,7 @@ mne.set_log_level(verbose=False)
 ## Hyperparameters --------------------------------------------------------------------------------------------------------
 # Cue Parameters --------------------------------------------------------------
 arrow_size = 300             # Arrow Size
-bar_length = 400             # Bar length
-n_trials  = [15, 15, 15, 0]     # Number of each class (None, Right, Left, Down)
+n_trials  = [0, 2, 2, 0]     # Number of each class (None, Right, Left, Down)
 t_cross = 2                  # Length of cross display [sec]
 t_cue = 3                    # Length of arrow display [sec]
 t_rest_mean = 2              # Mean of rest session length [sec]
@@ -34,22 +40,18 @@ blink_freq = 0               # Arrow blinking frequency [Hz]
 # Classification Hyperparameters ----------------------------------------------
 # -- |Train Data| --
 participant_id = 0
-session = 4
+session = 3
 initial_run = 1
 n_run = 5
 
-# -- |Decision Threshold| --
-decision_threshold = [0.5,0.5] # Left Right
-
 # -- |Time Parameters| --
 # Offline
-tmin= -0.5
+tmin= -0.1
 tmax= 3
-t_baseline_offline = 0.5
+t_baseline_offline = 0.1
 # Online
-timewindow_lenght = 3
-classification_cycle_period = 0.2
-classification_window_length = 0.4
+classification_cycle_period = 0.1
+classification_window_length = 0.5
 t_baseline_online = 0.1
 
 ## Cue Preparation --------------------------------------------------------------------------------------------------------
@@ -86,7 +88,7 @@ arrows = []
 for i in range(len(arrow)):
     arrows.append(visual.ShapeStim(win, vertices=arrow[i], interpolate=True, fillColor='red', pos=arrow_pos[i], size=arrow_size))
 
-# -- |Cue State Machine| --
+# Cue State Machine 
 def state(s):
     state.value = s
 def t_sm():
@@ -107,7 +109,6 @@ def cue_state_machine(cue):
             t_sm.counter = 0
             state(1)
     elif state.value == 1:
-        cross.draw()
         arrows[cue].draw() 
         t_sm()
         if t_sm.counter > t_cue:
@@ -121,19 +122,13 @@ def cue_state_machine(cue):
             cue_update_flag(True)
             state(0)
 
-# -- |Number of Boxes| --
-init_pos = 150
-nbox = int(t_cue//classification_cycle_period)
-box_length = int((bar_length*0.8)//nbox)
-box_space  = int(bar_length//nbox)
-
 ## Model Training Session -------------------------------------------------------------------------------------------------
 # -- |Event dictionary| --
 # Set up your event name
 if session == 1 : events_id = {'right': 0, 'left': 1}
 else            : events_id = {'none': 0, 'right': 1, 'left': 2}
 
-epochs_list = []
+epochs_list = [] 
 for i in range(initial_run,initial_run+n_run):
     # -- |File import| --
     streams, header = pyxdf.load_xdf(f"Data/sub-P{participant_id:003d}/ses-S{session:003d}/eeg/sub-P{participant_id:003d}_ses-S{session:003d}_task-Default_run-{i:003d}_eeg.xdf") #Example Data from Lab Recoder
@@ -158,56 +153,43 @@ epochs_clean_plain = model_plain.apply(epochs)
 epochs_clean_plain.apply_baseline()
 
 # -- |Model Training| --
-CSP_selected = []
-CLF_selected = []
+# Get EEG data and events
+X = epochs_clean_plain[['right','left']].get_data(copy=False)
+Y = epochs_clean_plain[['right','left']].events[:, -1]
 
-events_merge = [[0, 1],[0, 2]]
-events_dict_list = [{'none-left': 0, 'left': 2},{'none-right': 0, 'right': 1}]
+csp_list = []
+lr_list = []
+acc_list = []
 
-for i in range(2):
-    # Event merged to train different models
-    epochs_temp = epochs_clean_plain.copy()
-    epochs_temp.events = mne.merge_events(epochs_temp.events, events_merge[i], 0, replace_events=True)
-    epochs_temp.event_id = events_dict_list[i]
+for i in range(2, len(epochs.ch_names) + 1):
+    # -- |Features Extraction| --
+    # Initilize CSP
+    csp = CSP(n_components = i, norm_trace = False)
 
-    # Get EEG data and events
-    X = epochs_temp.get_data(copy=False)
-    Y = epochs_temp.events[:, -1]
+    # Fit CSP to data 
+    csp.fit(X,Y)
+    csp_list.append(csp)
 
-    csp_list = []
-    lr_list = []
-    acc_list = []
+    # Transform data into CSP space
+    X_transformed = csp.transform(X)
 
-    for i in range(2, len(epochs.ch_names) + 1):
-        # -- |Features Extraction| --
-        # Initilize CSP
-        csp = CSP(n_components = i, norm_trace = False)
+    # -- |Classification| --
+    # Split data into training and test sets
+    X_train, X_test, Y_train, Y_test = train_test_split(X_transformed, Y, test_size = 0.2, random_state = 42, stratify=Y)
 
-        # Fit CSP to data 
-        csp.fit(X,Y)
-        csp_list.append(csp)
+    # Classification 
+    lr = Pipeline([('LR', LogisticRegression())])
+    lr.fit(X_train, Y_train)
+    lr_list.append(lr)
 
-        # Transform data into CSP space
-        X_transformed = csp.transform(X)
+    y_pred = lr.predict(X_test)
+    accuracy = accuracy_score(Y_test, y_pred)
+    acc_list.append(accuracy)
 
-        # -- |Classification| --
-        # Split data into training and test sets
-        X_train, X_test, Y_train, Y_test = train_test_split(X_transformed, Y, test_size = 0.2, random_state = 42, stratify=Y)
-
-        # Classification 
-        lr = Pipeline([('LR', LogisticRegression())])
-        lr.fit(X_train, Y_train)
-        lr_list.append(lr)
-
-        y_pred = lr.predict(X_test)
-        accuracy = accuracy_score(Y_test, y_pred)
-        acc_list.append(accuracy)
-
-    # -- |Select CSP and models which gives maximum accuracy| --
-    # ind = np.argmax(acc_list) 
-    ind = len(acc_list) - 1
-    CSP_selected.append(csp_list[ind])
-    CLF_selected.append(lr_list[ind])
+# -- |Select CSP and models which gives maximum accuracy| --
+ind = np.argmax(acc_list) 
+CSP_selected = csp_list[ind]
+CLF_selected = lr_list[ind]
 
 ## Online Session ---------------------------------------------------------------------------------------------------------
 # -- |Setup Real Time EEG| --
@@ -223,7 +205,7 @@ EEG_stream =[stream for stream in All_streams if stream.name() == Target_LSL]
 inlet = StreamInlet(EEG_stream[0])
 
 # -- |Time Window Initialization| --
-timewindow = np.full((7,int(timewindow_lenght*250)),1e-15)
+timewindow = np.full((7,500),1e-15)
 channels = ['C3','Cz','C4','Pz','PO7','PO8','EOG'] # Set your target EEG channel name
 info = mne.create_info(
     ch_names= channels,
@@ -233,28 +215,25 @@ info = mne.create_info(
 )
 
 # -- |Begin Stimuli| --
+cross = visual.TextStim(win, text='+', height=50)
 cross.draw()
 win.flip()
 core.wait(3)
 
 timer = 0
 j = 0
-p = []
-Pscores = np.array([0,0])
-Nscores = np.array([0,0])
-Pscores_history = []
-Nscores_history = []
+p = [0,0]
 while j < len(labels):
 
     cue_update_flag(False)
     label = labels[j]
-    
+
     # Recieve EEG Data from OpenBCI LSL Streaming
     sample, timestamp = inlet.pull_sample()
 
     if sample:
         # Update Time Window
-        timewindow = np.concatenate([timewindow[:,1:], (np.array([sample[1:]])).T/1000000], axis=1)
+        timewindow = np.concatenate([timewindow[:,1:], (np.array([sample[1:]])/1000000).T], axis=1)
 
         currenttime = time.perf_counter()
         if currenttime >= timer:
@@ -266,93 +245,31 @@ while j < len(labels):
             # Preprocessing (CAR + Filter)
             timewindow_mne = mne.io.RawArray(timewindow, info, verbose=False)
             timewindow_mne = preprocessing(timewindow_mne)
-            
+
             # Artifact Removal
             timewindow_mne = model_plain.apply(timewindow_mne)
-
+            
             # Baseline Correction
-            realtime_data = timewindow_mne.get_data()[:,-int((classification_window_length)*250):]
+            realtime_data = timewindow_mne.get_data()[:,-int(classification_window_length*250):]
             realtime_data = realtime_data - np.array([np.mean(realtime_data[:int((t_baseline_online)*250)], axis = 1)]).T
 
             # Classification
-            p = []
-            for i in range(2):
-                X_transformed = CSP_selected[i].transform(np.array([realtime_data]))
-                prob = CLF_selected[i].predict_proba(X_transformed)[0,1]
-
-                if prob > decision_threshold[i] and state.value == 1: Pscores[i] += 1
-                elif prob <= decision_threshold[i] and state.value == 1: Nscores[i] += 1
-                p.append(prob)
-
+            X_transformed = CSP_selected.transform(np.array([realtime_data]))
+            p = CLF_selected.predict_proba(X_transformed)[0]
+            
             print(p)
 
             # -- |Display| --
-            # Results Bar
-            for k in range(nbox):
-                colors = np.where(np.array([k,k]) < Pscores,'#751818','gray')
-                box(pos = (-(init_pos + k*box_space),0), x = -box_length, color=colors[0]).draw()
-                box(pos = ( (init_pos + k*box_space),0), x =  box_length, color=colors[1]).draw()
+            cross.draw()
+            # Background Gray Box
+            box(pos = (-100,0), x = -360, color='gray').draw()
+            box(pos = ( 100,0), x =  360, color='gray').draw()
+            # Result Red Box
+            box(pos = (-100,0), x = -p[1]*360, color='red').draw()
+            box(pos = ( 100,0), x =  p[0]*360, color='red').draw()
             win.flip()
 
             if cue_update_flag.value:
-                Pscores_history.append([label, Pscores])
-                Nscores_history.append([label, Nscores])
-                Pscores = np.array([0,0])
-                Nscores = np.array([0,0])
                 j += 1
 
 win.close()
-
-## Performance Evaluation -------------------------------------------------------------------------------------------------
-def confusion_matrix(TP,FN,FP,TN):
-    '''Display Confusion Matrix'''
-    # -- |Results calculation| --
-    accuracy = (TP + TN)/(TP + FP + TN + FN)
-
-    if TP + FP == 0:
-        precision = np.NaN
-    else:
-        precision = TP/(TP + FP)
-    
-    if TP + FN == 0:
-        recall = np.NaN
-    else:
-        recall = TP/(TP + FN)
-        
-    f1 = 2*(precision*recall)/(precision + recall)
-
-    # -- |Results display| --
-    print('Confusion Matrix')
-    print('--------------------------------------')
-    print('|            |       Predicted       |')
-    print('|            -------------------------   Accuracy  = {0:}'.format(accuracy))
-    print('|            |     P     |     N     |')
-    print('--------------------------------------   Precision = {0:}'.format(precision))
-    print("|        | P |   {0:^5d}   |   {1:^5d}   |   Recall    = {2:}".format(TP, FN, recall))
-    print('| Actual -----------------------------')
-    print("|        | N |   {0:^5d}   |   {1:^5d}   |   F1-score  = {2:}".format(FP, TN, f1))
-    print('--------------------------------------')
-
-    return [accuracy, precision, recall, f1]
-
-positive = []
-negative = []
-for l in range(np.max(list(events_id.values())) + 1):
-    Pscores_total = np.array([sh[1] for sh in Pscores_history if sh[0] == l])
-    Pscores_total = np.sum(Pscores_total, axis = 0)
-    if np.sum(Pscores_total) == 0:
-        Pscores_total = np.array([0,0])
-    positive.append(Pscores_total)
-
-    Nscores_total = np.array([sh[1] for sh in Nscores_history if sh[0] == l])
-    Nscores_total = np.sum(Nscores_total, axis = 0)
-    if np.sum(Nscores_total) == 0:
-        Nscores_total = np.array([0,0])
-    negative.append(Nscores_total)
-
-positive = np.array(positive)
-negative = np.array(negative)
-print('Left Model Performance')
-confusion_matrix(positive[events_id['left']][0],negative[events_id['left']][0],(np.sum(positive[:,0]) - positive[events_id['left']])[0],(np.sum(negative[:,0]) - negative[events_id['left']])[0])
-print('Right Model Performance')
-confusion_matrix(positive[events_id['right']][1],negative[events_id['right']][1],(np.sum(positive[:,1]) - positive[events_id['right']])[1],(np.sum(negative[:,1]) - negative[events_id['right']])[1])

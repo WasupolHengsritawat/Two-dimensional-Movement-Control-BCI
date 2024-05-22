@@ -31,7 +31,7 @@ mne.set_log_level(verbose=False)
 ## Hyperparameters --------------------------------------------------------------------------------------------------------
 # -- |Train Data| --
 participant_id = 0
-session = 3
+session = 4
 initial_run = 1
 n_run = 5
 
@@ -199,7 +199,7 @@ while True:
                 X_transformed = CSP_selected[i].transform(np.array([realtime_data]))
                 p.append(CLF_selected[i].predict_proba(X_transformed)[0,1])
 
-            print(p)
+            # print(p)
 
     # -- |Display| --
     cross.draw()
