@@ -30,6 +30,7 @@ mne.set_log_level(verbose=False)
 
 ## Hyperparameters --------------------------------------------------------------------------------------------------------
 # Cue Parameters --------------------------------------------------------------
+screen = 1
 arrow_size = 300             # Arrow Size
 n_trials  = [0, 2, 2, 0]     # Number of each class (None, Right, Left, Down)
 t_cross = 2                  # Length of cross display [sec]
@@ -62,7 +63,7 @@ for i in range(1,len(n_trials)):
 np.random.shuffle(labels)
 
 # -- |Define Display| --
-win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', screen = 1)
+win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', screen = screen)
 
 # -- |Shapes| --
 def box(pos = (0,0), x = 0, y = 0, color = 'red', size = 1):
@@ -166,23 +167,24 @@ for i in range(2, len(epochs.ch_names) + 1):
     # Initilize CSP
     csp = CSP(n_components = i, norm_trace = False)
 
+    # -- |Classification| --
+    # Split data into training and test sets
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size = 0.2, random_state = 42, stratify=Y)
+
     # Fit CSP to data 
-    csp.fit(X,Y)
+    csp.fit(X_train,Y_train)
     csp_list.append(csp)
 
     # Transform data into CSP space
-    X_transformed = csp.transform(X)
-
-    # -- |Classification| --
-    # Split data into training and test sets
-    X_train, X_test, Y_train, Y_test = train_test_split(X_transformed, Y, test_size = 0.2, random_state = 42, stratify=Y)
+    X_train_transformed = csp.transform(X_train)
+    X_test_transformed = csp.transform(X_test)
 
     # Classification 
     lr = Pipeline([('LR', LogisticRegression())])
-    lr.fit(X_train, Y_train)
+    lr.fit(X_train_transformed, Y_train)
     lr_list.append(lr)
 
-    y_pred = lr.predict(X_test)
+    y_pred = lr.predict(X_test_transformed)
     accuracy = accuracy_score(Y_test, y_pred)
     acc_list.append(accuracy)
 

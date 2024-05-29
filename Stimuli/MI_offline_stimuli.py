@@ -30,7 +30,7 @@ arrow = [[(0,0)],                                                               
 arrow_pos = np.array([(0,0),(0.3,0),(-0.3,0),(0,-0.3)]) # [None, Right, Left, Down]
 
 # -- |Define Display| --
-win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', screen = 1)
+win = visual.Window(color=(-255, -255, -255), fullscr=True, units = 'pix', screen = 0)
 
 # -- |Initialize Stimuli Object| --
 cross = visual.TextStim(win, text='+', height=50)
